@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vibe Matcher</title>
+<style>
+  :root {
+    --bg: #f7f5f2;
+    --card: #ffffff;
+    --ink: #1f1b17;
+    --muted: #6b625b;
+    --accent: #b5482f;
+    --accent-ink: #ffffff;
+    --border: #e6e0d8;
+    --warn-bg: #fdf3e3;
+    --warn-border: #e8c07a;
+    --error-bg: #fbe9e7;
+    --error-border: #d98a7c;
+    --tag-bg: #f0ece5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 2.5rem 1.25rem 4rem;
+  }
+  h1 {
+    font-size: 1.9rem;
+    margin: 0 0 0.25rem;
+    letter-spacing: -0.01em;
+  }
+  .tagline {
+    color: var(--muted);
+    margin: 0 0 2rem;
+    font-size: 0.95rem;
+  }
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1.75rem;
+  }
+  label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  textarea {
+    width: 100%;
+    resize: vertical;
+    min-height: 4.5rem;
+    padding: 0.7rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 1rem;
+    font-family: inherit;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  textarea:focus, button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .hint { font-size: 0.8rem; color: var(--muted); }
+  button {
+    align-self: flex-start;
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: none;
+    padding: 0.65rem 1.4rem;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { opacity: 0.92; }
+
+  .banner {
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    margin-bottom: 1.25rem;
+    font-size: 0.92rem;
+  }
+  .banner.error { background: var(--error-bg); border: 1px solid var(--error-border); }
+  .banner.low-confidence { background: var(--warn-bg); border: 1px solid var(--warn-border); }
+
+  .summary { color: var(--muted); font-size: 0.9rem; margin: 0 0 1rem; }
+
+  .song {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    margin-bottom: 0.7rem;
+  }
+  .song-title { font-weight: 600; font-size: 1.02rem; margin: 0 0 0.2rem; }
+  .song-title .num { color: var(--muted); font-weight: 500; margin-right: 0.3rem; }
+  .song-reason { color: var(--ink); font-size: 0.92rem; margin: 0.15rem 0 0.5rem; }
+  .tags { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .tag {
+    background: var(--tag-bg);
+    color: var(--muted);
+    border-radius: 999px;
+    padding: 0.15rem 0.6rem;
+    font-size: 0.76rem;
+  }
+
+  .dropped-note {
+    color: var(--muted);
+    font-size: 0.82rem;
+    margin-top: 1rem;
+    border-top: 1px dashed var(--border);
+    padding-top: 0.75rem;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Vibe Matcher</h1>
+  <p class="tagline">Describe a mood, genre, or artist. Every result is a real song verified against a local dataset.</p>
+
+  <form method="post">
+    <label for="query">What are you looking for?</label>
+    <textarea id="query" name="query" placeholder='e.g. "moody indie rock like Phoebe Bridgers, no sad songs"'>{{ query }}</textarea>
+    <span class="hint">Add exclusions right in the text, e.g. "no sad songs", "clean only".</span>
+    <button type="submit">Find songs</button>
+  </form>
+
+  {% if error %}
+    <div class="banner error">{{ error }}</div>
+  {% endif %}
+
+  {% if result %}
+    {% if result.low_confidence_reason %}
+      <div class="banner low-confidence">
+        <strong>Low confidence:</strong> {{ result.low_confidence_reason }}
+        Showing best-effort matches below.
+      </div>
+    {% endif %}
+
+    {% if not result.verified %}
+      <p class="summary">I couldn't confidently match any songs in my dataset to this request.</p>
+    {% else %}
+      {% set shown = result.verified[:10] %}
+      {% if result.verified|length < 5 %}
+        <p class="summary">I could only confidently match {{ result.verified|length }} song(s) -- showing what I have rather than padding the list.</p>
+      {% else %}
+        <p class="summary">{{ shown|length }} matches:</p>
+      {% endif %}
+
+      {% for song in shown %}
+        <div class="song">
+          <p class="song-title"><span class="num">{{ loop.index }}.</span>{{ song.artist }} — "{{ song.title }}"</p>
+          <p class="song-reason">{{ song.reason }}</p>
+          <div class="tags">
+            {% for m in song.moods %}<span class="tag">{{ m }}</span>{% endfor %}
+            {% for g in song.genres %}<span class="tag">{{ g }}</span>{% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+
+      {% if result.total_dropped %}
+        <p class="dropped-note">
+          {{ result.total_dropped }} AI-suggested song(s) were filtered out: {{ result.dropped_detail }}
+        </p>
+      {% endif %}
+    {% endif %}
+  {% endif %}
+</main>
+</body>
+</html>

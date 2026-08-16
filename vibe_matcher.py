@@ -57,6 +57,11 @@ GENERIC_SIGNAL_WORDS = {
 }
 
 
+class MissingAPIKeyError(Exception):
+    """Raised when ANTHROPIC_API_KEY isn't set. Caught separately by each
+    front end (CLI, web UI) so each can present it in its own way."""
+
+
 # =====================================================================
 # BORING 70%: small shared utility
 # =====================================================================
@@ -260,6 +265,12 @@ def validate_candidates(candidates, dataset, exclusions):
 # BORING 70%: output formatting
 # =====================================================================
 
+def dropped_detail_string(dropped):
+    """'2 not in dataset, 1 explicit' -- shared by the CLI and the web UI
+    so there's one place that decides how drop reasons read."""
+    return ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in dropped.items() if v)
+
+
 def format_results(verified, dropped, low_confidence_reason=None):
     lines = []
 
@@ -285,17 +296,23 @@ def format_results(verified, dropped, low_confidence_reason=None):
 
     total_dropped = sum(dropped.values())
     if total_dropped:
-        detail = ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in dropped.items() if v)
-        lines.append(f"\n({total_dropped} AI-suggested song(s) were filtered out: {detail})")
+        lines.append(f"\n({total_dropped} AI-suggested song(s) were filtered out: "
+                      f"{dropped_detail_string(dropped)})")
 
     return "\n".join(lines)
 
 
 # =====================================================================
-# CLI entry point -- orchestrates the boring layer around the one AI call
+# Shared orchestration -- ties the boring layer and the one AI call
+# together. Both the CLI (below) and the Flask web UI (app.py) call this
+# same function, so there is exactly one code path for "how a request
+# becomes a validated result."
 # =====================================================================
 
-def run(query, dataset_path=SONGS_PATH):
+def get_recommendations(query, dataset_path=SONGS_PATH):
+    """Returns a dict: {verified, dropped, low_confidence_reason}.
+    Raises MissingAPIKeyError or anthropic.APIError on failure -- callers
+    decide how to present those."""
     dataset = load_dataset(dataset_path)
     moods_vocab, genres_vocab = build_vocab(dataset)
 
@@ -319,19 +336,35 @@ def run(query, dataset_path=SONGS_PATH):
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
+        raise MissingAPIKeyError("ANTHROPIC_API_KEY is not set.")
+
+    client = anthropic.Anthropic(api_key=api_key)
+    candidates = get_ai_candidates(client, cleaned_query, exclusions, dataset)
+
+    verified, dropped = validate_candidates(candidates, dataset, exclusions)
+    return {
+        "verified": verified,
+        "dropped": dropped,
+        "low_confidence_reason": low_confidence_reason,
+    }
+
+
+# =====================================================================
+# CLI entry point
+# =====================================================================
+
+def run(query, dataset_path=SONGS_PATH):
+    try:
+        result = get_recommendations(query, dataset_path)
+    except MissingAPIKeyError:
         print("Error: ANTHROPIC_API_KEY is not set. Copy .env.example to .env and add your key.",
               file=sys.stderr)
         sys.exit(1)
-
-    client = anthropic.Anthropic(api_key=api_key)
-    try:
-        candidates = get_ai_candidates(client, cleaned_query, exclusions, dataset)
     except anthropic.APIError as e:
         print(f"Error calling the Claude API: {e}", file=sys.stderr)
         sys.exit(1)
 
-    verified, dropped = validate_candidates(candidates, dataset, exclusions)
-    print(format_results(verified, dropped, low_confidence_reason))
+    print(format_results(result["verified"], result["dropped"], result["low_confidence_reason"]))
 
 
 def main():

@@ -108,6 +108,8 @@ cp .env.example .env
 
 ## Usage
 
+### CLI
+
 ```bash
 python vibe_matcher.py "moody indie rock like Phoebe Bridgers, no sad songs"
 python vibe_matcher.py "upbeat songs for a run"
@@ -115,6 +117,23 @@ python vibe_matcher.py "clean hip hop, confident and energetic"
 python vibe_matcher.py "something sad but also upbeat"   # contradictory -> flagged
 python vibe_matcher.py "music"                             # vague -> flagged
 ```
+
+### Web UI
+
+```bash
+python app.py
+```
+
+Then open `http://127.0.0.1:5000` in a browser. Type a request into the
+text box (exclusions can go right in the same sentence, e.g. "no sad
+songs", "clean only") and click **Find songs**.
+
+`app.py` is presentation only — a thin Flask wrapper. All parsing,
+validation, and the single AI call still live in `vibe_matcher.py` and are
+reused as-is via `get_recommendations()`, so the CLI and the web UI share
+exactly one code path for turning a request into a validated result. The
+low-confidence banner, the "fewer than 5 results" fallback, and the
+per-song reasoning/tags all work identically in both front ends.
 
 The model used for the single AI call defaults to `claude-haiku-4-5-20251001`
 (fast and inexpensive — the task is closed-set judgment, not open-ended
@@ -124,8 +143,10 @@ variable.
 ## Project layout
 
 ```
-songs.json        the entire universe of recommendable songs (~177 entries)
-vibe_matcher.py    CLI: boring 70% (parsing/validation/formatting) + AI 30% (one Claude call)
-requirements.txt   anthropic, python-dotenv
-.env.example       template for your local .env (which is gitignored)
+songs.json           the entire universe of recommendable songs (~177 entries)
+vibe_matcher.py       core: boring 70% (parsing/validation/formatting) + AI 30% (one Claude call)
+app.py                Flask web UI -- presentation only, calls vibe_matcher.get_recommendations()
+templates/index.html  web UI page (form + results)
+requirements.txt      anthropic, python-dotenv, flask
+.env.example          template for your local .env (which is gitignored)
 ```
