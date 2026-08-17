@@ -71,16 +71,19 @@ validator before anything reaches you:
    reason plus its actual mood/genre tags from the dataset, so you can
    check the logic yourself rather than trusting a black box.
 
-### Failure modes considered
+### Failure Mode Map
 
-| Failure mode | How it's handled |
-|---|---|
-| AI fabricates a song or artist/title pairing | Existence check against `songs.json` by exact match — anything not found is silently dropped, never shown. |
-| AI ignores an exclusion ("no sad songs" but returns a sad song anyway) | The validator re-checks every survivor's real tags from the dataset, independent of what the AI said or did. |
-| Vague request ("just play something") | Heuristic detects no mood/genre/artist/activity signal in the cleaned query and flags low confidence before returning results. |
-| Contradictory request ("sad but upbeat") | Heuristic checks a table of opposite mood pairs against words actually present in the request (skipping cases where one side is itself excluded) and flags it. |
-| Too few good matches exist in the dataset | If fewer than 5 songs survive validation, the tool refuses to pad the list and says exactly how many it could confidently match. |
-| Duplicate picks from the AI | Deduped by normalized (artist, title) before display. |
+Product-level failure modes (what the user actually experiences), each paired
+with the product-layer response that contains it — not "the model tries
+harder," an actual mechanism in the code:
+
+| # | Failure mode (what the user experiences) | Product-layer response |
+|---|---|---|
+| 1 | User trusts an AI-suggested song that doesn't actually exist and can't find it anywhere. | `validate_candidates()` exact-matches every candidate against `songs.json`; anything not found is silently dropped before display. |
+| 2 | User explicitly excludes something ("no sad songs," "clean only") and gets a result that violates it anyway. | Exclusions are parsed independently of the AI and re-checked against the dataset's own ground-truth tags after the AI responds — its claimed compliance is never trusted. |
+| 3 | User gives a vague or self-contradictory request and gets a confidently-presented list of 10 songs with no way to tell a strong match from a guess. | `is_vague()` / `detect_contradiction()` run pre-flight and surface an explicit low-confidence banner instead of a falsely confident result set. |
+| 4 | User with niche taste gets a thin list and assumes the tool "doesn't get" them, with no way to tell coverage gap from bad matching. | Fewer than 5 survivors triggers "I could only confidently match N songs" plus *why* candidates were dropped, instead of padding or silence. |
+| 5 | User hits a network hiccup or malformed AI response and sees a raw crash instead of an understandable message. | `anthropic.APIError` and malformed-JSON responses are caught explicitly and routed into normal UI states. **Known gap**: non-`APIError` network failures (e.g. raw connection timeouts) aren't caught yet. |
 
 ### Accuracy vs. coverage trade-off
 
@@ -97,6 +100,29 @@ rather than stretch the dataset to cover a gap it can't. Growing the
 dataset (more songs, broader genre coverage) is the intended way to widen
 coverage without weakening the accuracy guarantee, since the same
 validator applies no matter how large `songs.json` gets.
+
+### Other tradeoffs
+
+- **Latency/cost vs. verification depth.** One Claude call per request, no
+  per-song calls and no second AI call to double-check itself — all
+  verification happens in deterministic Python after the fact, which is
+  both cheaper and more trustworthy than asking the model to grade its
+  own work.
+- **Feature richness vs. trust.** Exclusions match dataset tags exactly
+  ("no sad songs" only excludes songs tagged `sad`) rather than trying to
+  understand semantically related phrasing ("nothing depressing"). Less
+  flexible, but every exclusion decision is auditable and provably
+  correct rather than inferred.
+
+**What got cut, and why:**
+- *Fuzzy/semantic exclusion matching* — would need a second AI call or a
+  hand-built synonym map; exact matching is less flexible but never
+  silently wrong.
+- *Async loading indicator on the web UI* — the page currently blocks
+  with no spinner during the API call; a known v1 rough edge, not hidden.
+- *Catch-all handling for non-`APIError` network failures* — deferred
+  rather than building a generic try/except that could mask real bugs
+  behind a vague error message.
 
 ## Setup
 
